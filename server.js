@@ -6,70 +6,51 @@ require('dotenv').config();
 const app = express();
 
 // Middleware
-app.use(cors()); // Allows your React app to talk to this server
-app.use(express.json({ limit: '50mb' })); // Increased limit to handle large image uploads
+app.use(cors());
+// INCREASED LIMIT: Essential for handling large images
+app.use(express.json({ limit: '50mb' })); 
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-const CATEGORIES = [
-  'Food & Dining', 
-  'Transportation', 
-  'Shopping', 
-  'Utilities', 
-  'Entertainment', 
-  'Health', 
-  'Income', 
-  'Transfers',
-  'Other'
-];
 
 app.post('/analyze-statement', async (req, res) => {
   try {
     const { imageParts } = req.body;
 
+    // Basic Validation
     if (!imageParts || !Array.isArray(imageParts) || imageParts.length === 0) {
+      console.log("Error: No image data received");
       return res.status(400).json({ error: 'No image data provided' });
     }
 
-    // Use the Flash model for speed and cost-efficiency
+    console.log("Processing request with " + imageParts.length + " images...");
+
+    // TESTING: Using the Preview Model as requested
+    // If this fails, we will see the specific error in the logs
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025" });
 
     const prompt = `
-      Analyze the provided bank or credit card statement images/PDFs.
-      Extract all individual transactions from the table rows.
+      Analyze the provided bank statement.
+      Extract transactions into a JSON object with: date, description, amount, type, category.
+      Categories: Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
       
-      CRITICAL INSTRUCTIONS FOR ACCURACY:
-      1. Read the document row by row.
-      2. Ensure the 'Amount' strictly aligns horizontally with the 'Description' and 'Date'.
-      3. If a description spans multiple lines, merge it into a single description field.
-      4. Ignore running balances, only extract the transaction amount.
-      
-      For each transaction, extract:
-      1. "date": The date of the transaction (Format: YYYY-MM-DD). If year is missing, assume current year.
-      2. "description": The merchant name or transaction description.
-      3. "amount": The numerical amount (positive number). 
-      4. "type": Either "expense" or "income".
-      5. "category": Categorize based on the description into one of: ${CATEGORIES.join(', ')}.
-
-      Return ONLY a JSON object with a single key "transactions" which is an array of these objects.
-      Do not include markdown formatting like \`\`\`json. Just the raw JSON.
+      CRITICAL: Return ONLY raw JSON. Do not use markdown code blocks.
     `;
 
-    // Send to Gemini
     const result = await model.generateContent([prompt, ...imageParts]);
     const response = await result.response;
     const text = response.text();
 
-    // Send the raw text back to the frontend
+    console.log("Success! Sending data back to frontend.");
     res.json({ result: text });
 
   } catch (error) {
-    console.error('Server Error:', error);
+    // This logs the REAL error to your Render Dashboard
+    console.error('Server Error Details:', error);
     
-    // Send a user-friendly error message
+    // Send a message back to the UI so you know to check logs
     res.status(500).json({ 
-      error: 'Failed to process document. Please try again or check the file size.' 
+      error: 'Server failed. Please check Render Logs for the specific error.' 
     });
   }
 });
