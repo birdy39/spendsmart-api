@@ -5,43 +5,43 @@ require('dotenv').config();
 
 const app = express();
 
-// Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); 
 
-// --- DEBUGGING SECTION ---
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  console.error("CRITICAL ERROR: GEMINI_API_KEY is missing in Environment Variables!");
-} else {
-  // We only print the first 5 characters for safety. 
-  // COMPARE THIS with your real key in the logs.
-  console.log(`DEBUG: API Key loaded. It starts with: '${apiKey.substring(0, 5)}...'`);
-  console.log(`DEBUG: Total Key Length: ${apiKey.length} characters`);
+// --- 1. SAFER KEY HANDLING ---
+// We get the key and immediately remove accidental spaces (trim)
+let rawKey = process.env.GEMINI_API_KEY;
+if (!rawKey) {
+  console.error("CRITICAL: GEMINI_API_KEY is undefined in Environment Variables.");
 }
-// -------------------------
+const apiKey = rawKey ? rawKey.trim() : "";
 
-// Initialize Gemini
+// Debugging: Print details to Render Logs
+if (apiKey) {
+    console.log(`System: API Key loaded. Length: ${apiKey.length} characters.`);
+    console.log(`System: Key starts with: '${apiKey.substring(0, 5)}...'`);
+}
+// -----------------------------
+
 const genAI = new GoogleGenerativeAI(apiKey);
 
 app.post('/analyze-statement', async (req, res) => {
   try {
     const { imageParts } = req.body;
 
-    if (!imageParts || !Array.isArray(imageParts) || imageParts.length === 0) {
-      console.log("Error: No image data received");
+    if (!imageParts || imageParts.length === 0) {
       return res.status(400).json({ error: 'No image data provided' });
     }
 
     console.log("Processing request...");
 
-    // Using the Preview model as requested
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025" });
+    // 2. SWITCH TO STABLE MODEL
+    // If 2.5 is giving you trouble, let's use the rock-solid 1.5-flash first to prove it works.
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const prompt = `
       Analyze the provided bank statement.
       Extract transactions into a JSON object with: date, description, amount, type, category.
-      Categories: Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
       CRITICAL: Return ONLY raw JSON. Do not use markdown code blocks.
     `;
 
@@ -49,13 +49,14 @@ app.post('/analyze-statement', async (req, res) => {
     const response = await result.response;
     const text = response.text();
 
-    console.log("Success!");
+    console.log("Success! Data generated.");
     res.json({ result: text });
 
   } catch (error) {
-    console.error('Server Error Details:', error);
+    console.error('Generative AI Error:', error);
+    // Send the actual error message back to the frontend so you can see it in the browser console
     res.status(500).json({ 
-      error: 'Server failed. Please check Render Logs for the specific error.' 
+      error: `AI Error: ${error.message}` 
     });
   }
 });
