@@ -8,18 +8,15 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); 
 
-// --- 1. SAFER KEY HANDLING ---
-// We get the key and immediately remove accidental spaces (trim)
+// --- SAFER KEY HANDLING ---
 let rawKey = process.env.GEMINI_API_KEY;
 if (!rawKey) {
   console.error("CRITICAL: GEMINI_API_KEY is undefined in Environment Variables.");
 }
 const apiKey = rawKey ? rawKey.trim() : "";
 
-// Debugging: Print details to Render Logs
 if (apiKey) {
     console.log(`System: API Key loaded. Length: ${apiKey.length} characters.`);
-    console.log(`System: Key starts with: '${apiKey.substring(0, 5)}...'`);
 }
 // -----------------------------
 
@@ -35,8 +32,16 @@ app.post('/analyze-statement', async (req, res) => {
 
     console.log("Processing request...");
 
-    // 2. SWITCH TO STABLE MODEL
-    // If 2.5 is giving you trouble, let's use the rock-solid 1.5-flash first to prove it works.
+    // FIX: The Frontend sends flat objects { data, mimeType }.
+    // Google Gemini REQUIRES them to be wrapped in { inlineData: { ... } }
+    const formattedParts = imageParts.map(part => ({
+      inlineData: {
+        data: part.data,
+        mimeType: part.mimeType
+      }
+    }));
+
+    // Use the stable 1.5-flash model
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const prompt = `
@@ -45,7 +50,8 @@ app.post('/analyze-statement', async (req, res) => {
       CRITICAL: Return ONLY raw JSON. Do not use markdown code blocks.
     `;
 
-    const result = await model.generateContent([prompt, ...imageParts]);
+    // Send the FIX formattedParts, not the raw imageParts
+    const result = await model.generateContent([prompt, ...formattedParts]);
     const response = await result.response;
     const text = response.text();
 
@@ -54,7 +60,6 @@ app.post('/analyze-statement', async (req, res) => {
 
   } catch (error) {
     console.error('Generative AI Error:', error);
-    // Send the actual error message back to the frontend so you can see it in the browser console
     res.status(500).json({ 
       error: `AI Error: ${error.message}` 
     });
