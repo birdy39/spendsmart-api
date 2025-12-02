@@ -7,33 +7,41 @@ const app = express();
 
 // Middleware
 app.use(cors());
-// INCREASED LIMIT: Essential for handling large images
 app.use(express.json({ limit: '50mb' })); 
 
+// --- DEBUGGING SECTION ---
+const apiKey = process.env.GEMINI_API_KEY;
+if (!apiKey) {
+  console.error("CRITICAL ERROR: GEMINI_API_KEY is missing in Environment Variables!");
+} else {
+  // We only print the first 5 characters for safety. 
+  // COMPARE THIS with your real key in the logs.
+  console.log(`DEBUG: API Key loaded. It starts with: '${apiKey.substring(0, 5)}...'`);
+  console.log(`DEBUG: Total Key Length: ${apiKey.length} characters`);
+}
+// -------------------------
+
 // Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(apiKey);
 
 app.post('/analyze-statement', async (req, res) => {
   try {
     const { imageParts } = req.body;
 
-    // Basic Validation
     if (!imageParts || !Array.isArray(imageParts) || imageParts.length === 0) {
       console.log("Error: No image data received");
       return res.status(400).json({ error: 'No image data provided' });
     }
 
-    console.log("Processing request with " + imageParts.length + " images...");
+    console.log("Processing request...");
 
-    // TESTING: Using the Preview Model as requested
-    // If this fails, we will see the specific error in the logs
+    // Using the Preview model as requested
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025" });
 
     const prompt = `
       Analyze the provided bank statement.
       Extract transactions into a JSON object with: date, description, amount, type, category.
       Categories: Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
-      
       CRITICAL: Return ONLY raw JSON. Do not use markdown code blocks.
     `;
 
@@ -41,14 +49,11 @@ app.post('/analyze-statement', async (req, res) => {
     const response = await result.response;
     const text = response.text();
 
-    console.log("Success! Sending data back to frontend.");
+    console.log("Success!");
     res.json({ result: text });
 
   } catch (error) {
-    // This logs the REAL error to your Render Dashboard
     console.error('Server Error Details:', error);
-    
-    // Send a message back to the UI so you know to check logs
     res.status(500).json({ 
       error: 'Server failed. Please check Render Logs for the specific error.' 
     });
