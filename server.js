@@ -14,6 +14,36 @@ if (!rawKey) {
 const apiKey = rawKey ? rawKey.trim() : "";
 // -----------------------------
 
+// --- DIAGNOSTIC: List Available Models on Startup ---
+async function listModels() {
+  if (!apiKey) return;
+  try {
+    console.log("System: Checking available models for this API key...");
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+    const data = await response.json();
+    
+    if (data.models) {
+      console.log("--- AVAILABLE MODELS (Check this list!) ---");
+      // Filter for models that likely support text/image generation
+      const visualModels = data.models
+        .map(m => m.name.replace('models/', '')); // Remove 'models/' prefix for cleaner reading
+      
+      console.log(visualModels.join("\n"));
+      console.log("-------------------------------------------");
+    } else {
+      console.error("System: Could not list models. Error Response:", JSON.stringify(data));
+    }
+  } catch (e) {
+    console.error("System: Failed to check models:", e.message);
+  }
+}
+
+// Run the diagnostic check immediately when server starts
+listModels();
+// ----------------------------------------------------
+
 app.post('/analyze-statement', async (req, res) => {
   try {
     const { imageParts } = req.body;
@@ -24,8 +54,7 @@ app.post('/analyze-statement', async (req, res) => {
 
     console.log("Processing request via Direct HTTP...");
 
-    // 1. Prepare the Data manually
-    // This format is exactly what Google's server expects
+    // 1. Prepare Data
     const contents = [
       {
         parts: [
@@ -45,10 +74,14 @@ app.post('/analyze-statement', async (req, res) => {
       }
     ];
 
-    // 2. Direct Fetch Call (Bypassing the buggy library)
-    // We explicitly call the 1.5-flash endpoint
+    // 2. Direct Fetch Call
+    // We try 'gemini-1.5-flash' first. If the logs show a different name, we will change this line later.
+    const modelName = "gemini-1.5-flash"; 
+    
+    console.log(`Attempting to use model: ${modelName}`);
+
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: {
@@ -60,13 +93,11 @@ app.post('/analyze-statement', async (req, res) => {
 
     const data = await response.json();
 
-    // 3. Handle Errors from Google
     if (!response.ok) {
       console.error("Google API Error:", JSON.stringify(data, null, 2));
       throw new Error(data.error?.message || "Unknown error from Google");
     }
 
-    // 4. Extract the text
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     
     if (!text) {
@@ -88,4 +119,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
