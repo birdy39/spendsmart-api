@@ -23,11 +23,9 @@ async function listModels() {
       `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
     );
     const data = await response.json();
-    
     if (data.models) {
       console.log("--- AVAILABLE MODELS ---");
-      const visualModels = data.models
-        .map(m => m.name.replace('models/', ''));
+      const visualModels = data.models.map(m => m.name.replace('models/', ''));
       console.log(visualModels.join("\n"));
       console.log("------------------------");
     }
@@ -35,7 +33,6 @@ async function listModels() {
     console.error("System: Failed to check models:", e.message);
   }
 }
-
 listModels();
 // ----------------------------------------------------
 
@@ -54,10 +51,18 @@ app.post('/analyze-statement', async (req, res) => {
       {
         parts: [
           { 
-            text: `Analyze the provided bank statement.
+            // IMPROVED PROMPT: Specifically handles multi-line rows like "Apple Pay"
+            text: `Analyze the provided bank statement image.
             Extract transactions into a JSON object with: date, description, amount, type, category.
-            Categories: Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
-            CRITICAL: Return ONLY raw JSON. Do not use markdown code blocks.` 
+            
+            CRITICAL RULES FOR ACCURACY:
+            1. **Row Merging:** Many transactions span two lines. (e.g., Line 1 has the Merchant Name and Amount, Line 2 has "APPLE PAY" or "Ref No").
+            2. **Check for Amounts:** If a line of text does NOT have its own distinct amount in the amount column, it is NOT a new transaction. Merge that text into the description of the previous transaction.
+            3. **Do Not Duplicate:** Never create two transactions for the same amount unless the statement explicitly lists the amount twice.
+            4. **Data Types:** Date format YYYY-MM-DD. Amount must be a number.
+            5. **Categories:** Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
+
+            Return ONLY raw JSON. Do not use markdown code blocks.` 
           },
           ...imageParts.map(part => ({
             inlineData: {
@@ -70,7 +75,6 @@ app.post('/analyze-statement', async (req, res) => {
     ];
 
     // 2. Direct Fetch Call
-    // UPDATED: Using 'gemini-2.0-flash' because it was found in your available models list
     const modelName = "gemini-2.0-flash"; 
     
     console.log(`Attempting to use model: ${modelName}`);
