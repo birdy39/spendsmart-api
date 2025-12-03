@@ -1,26 +1,18 @@
 const express = require('express');
 const cors = require('cors');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
 const app = express();
-
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); 
+app.use(express.json({ limit: '50mb' }));
 
 // --- SAFER KEY HANDLING ---
 let rawKey = process.env.GEMINI_API_KEY;
 if (!rawKey) {
-  console.error("CRITICAL: GEMINI_API_KEY is undefined in Environment Variables.");
+  console.error("CRITICAL: GEMINI_API_KEY is undefined.");
 }
 const apiKey = rawKey ? rawKey.trim() : "";
-
-if (apiKey) {
-    console.log(`System: API Key loaded. Length: ${apiKey.length} characters.`);
-}
 // -----------------------------
-
-const genAI = new GoogleGenerativeAI(apiKey);
 
 app.post('/analyze-statement', async (req, res) => {
   try {
@@ -30,36 +22,62 @@ app.post('/analyze-statement', async (req, res) => {
       return res.status(400).json({ error: 'No image data provided' });
     }
 
-    console.log("Processing request...");
+    console.log("Processing request via Direct HTTP...");
 
-    // FIX: The Frontend sends flat objects { data, mimeType }.
-    // Google Gemini REQUIRES them to be wrapped in { inlineData: { ... } }
-    const formattedParts = imageParts.map(part => ({
-      inlineData: {
-        data: part.data,
-        mimeType: part.mimeType
+    // 1. Prepare the Data manually
+    // This format is exactly what Google's server expects
+    const contents = [
+      {
+        parts: [
+          { 
+            text: `Analyze the provided bank statement.
+            Extract transactions into a JSON object with: date, description, amount, type, category.
+            Categories: Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
+            CRITICAL: Return ONLY raw JSON. Do not use markdown code blocks.` 
+          },
+          ...imageParts.map(part => ({
+            inlineData: {
+              mimeType: part.mimeType,
+              data: part.data
+            }
+          }))
+        ]
       }
-    }));
+    ];
 
-    // Use the stable 1.5-flash model
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // 2. Direct Fetch Call (Bypassing the buggy library)
+    // We explicitly call the 1.5-flash endpoint
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ contents })
+      }
+    );
 
-    const prompt = `
-      Analyze the provided bank statement.
-      Extract transactions into a JSON object with: date, description, amount, type, category.
-      CRITICAL: Return ONLY raw JSON. Do not use markdown code blocks.
-    `;
+    const data = await response.json();
 
-    // Send the FIX formattedParts, not the raw imageParts
-    const result = await model.generateContent([prompt, ...formattedParts]);
-    const response = await result.response;
-    const text = response.text();
+    // 3. Handle Errors from Google
+    if (!response.ok) {
+      console.error("Google API Error:", JSON.stringify(data, null, 2));
+      throw new Error(data.error?.message || "Unknown error from Google");
+    }
+
+    // 4. Extract the text
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!text) {
+        throw new Error("AI returned no text.");
+    }
 
     console.log("Success! Data generated.");
     res.json({ result: text });
 
   } catch (error) {
-    console.error('Generative AI Error:', error);
+    console.error('Server Error:', error);
     res.status(500).json({ 
       error: `AI Error: ${error.message}` 
     });
