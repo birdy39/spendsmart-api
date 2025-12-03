@@ -25,22 +25,17 @@ async function listModels() {
     const data = await response.json();
     
     if (data.models) {
-      console.log("--- AVAILABLE MODELS (Check this list!) ---");
-      // Filter for models that likely support text/image generation
+      console.log("--- AVAILABLE MODELS ---");
       const visualModels = data.models
-        .map(m => m.name.replace('models/', '')); // Remove 'models/' prefix for cleaner reading
-      
+        .map(m => m.name.replace('models/', ''));
       console.log(visualModels.join("\n"));
-      console.log("-------------------------------------------");
-    } else {
-      console.error("System: Could not list models. Error Response:", JSON.stringify(data));
+      console.log("------------------------");
     }
   } catch (e) {
     console.error("System: Failed to check models:", e.message);
   }
 }
 
-// Run the diagnostic check immediately when server starts
 listModels();
 // ----------------------------------------------------
 
@@ -75,8 +70,8 @@ app.post('/analyze-statement', async (req, res) => {
     ];
 
     // 2. Direct Fetch Call
-    // We try 'gemini-1.5-flash' first. If the logs show a different name, we will change this line later.
-    const modelName = "gemini-1.5-flash"; 
+    // UPDATED: Using 'gemini-2.0-flash' because it was found in your available models list
+    const modelName = "gemini-2.0-flash"; 
     
     console.log(`Attempting to use model: ${modelName}`);
 
