@@ -14,28 +14,6 @@ if (!rawKey) {
 const apiKey = rawKey ? rawKey.trim() : "";
 // -----------------------------
 
-// --- DIAGNOSTIC: List Available Models on Startup ---
-async function listModels() {
-  if (!apiKey) return;
-  try {
-    console.log("System: Checking available models for this API key...");
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
-    );
-    const data = await response.json();
-    if (data.models) {
-      console.log("--- AVAILABLE MODELS ---");
-      const visualModels = data.models.map(m => m.name.replace('models/', ''));
-      console.log(visualModels.join("\n"));
-      console.log("------------------------");
-    }
-  } catch (e) {
-    console.error("System: Failed to check models:", e.message);
-  }
-}
-listModels();
-// ----------------------------------------------------
-
 app.post('/analyze-statement', async (req, res) => {
   try {
     const { imageParts } = req.body;
@@ -51,18 +29,32 @@ app.post('/analyze-statement', async (req, res) => {
       {
         parts: [
           { 
-            // IMPROVED PROMPT: Specifically handles multi-line rows like "Apple Pay"
-            text: `Analyze the provided bank statement image.
+            // UNIVERSAL PROMPT: Handles Credit Cards (1 amount col) AND Bank Statements (Deposit/Withdrawal cols)
+            text: `Analyze the provided bank or credit card statement.
             Extract transactions into a JSON object with: date, description, amount, type, category.
             
             CRITICAL RULES FOR ACCURACY:
-            1. **Row Merging:** Many transactions span two lines. (e.g., Line 1 has the Merchant Name and Amount, Line 2 has "APPLE PAY" or "Ref No").
-            2. **Check for Amounts:** If a line of text does NOT have its own distinct amount in the amount column, it is NOT a new transaction. Merge that text into the description of the previous transaction.
-            3. **Do Not Duplicate:** Never create two transactions for the same amount unless the statement explicitly lists the amount twice.
-            4. **Data Types:** Date format YYYY-MM-DD. Amount must be a number.
-            5. **Categories:** Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
+            1. **Detect Layout:** - If the table has separate columns for "Deposit" (or Credit) and "Withdrawal" (or Debit), use them.
+               - Values in "Deposit" column -> TYPE: 'income'.
+               - Values in "Withdrawal" column -> TYPE: 'expense'.
+            
+            2. **Ignore Balance:** NEVER extract the "Balance" column as a transaction. Only extract the movement of money.
+            
+            3. **Ignore Summaries:** Do not extract lines like "Total", "B/F BALANCE", "C/F BALANCE", or "Transaction Summary".
+            
+            4. **Specific Keywords (Bank Statement Override):**
+               - "Credit Interest" -> TYPE: 'income', CATEGORY: 'Income'.
+               - "DEPOSIT" -> TYPE: 'income', CATEGORY: 'Income'.
+               - "AUTOPAY" -> TYPE: 'expense' (unless in deposit column).
+            
+            5. **Row Merging:** If a description spans multiple lines (e.g. "APPLE PAY-OTHERS" below the merchant name), merge them into one description.
+            
+            Standard Rules:
+            - Date format: YYYY-MM-DD. (If date is missing on a row, use the date from the previous row or section header).
+            - Amount: Absolute number (positive).
+            - Categories: Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
 
-            Return ONLY raw JSON. Do not use markdown code blocks.` 
+            Return ONLY raw JSON.` 
           },
           ...imageParts.map(part => ({
             inlineData: {
