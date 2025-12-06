@@ -29,29 +29,33 @@ app.post('/analyze-statement', async (req, res) => {
       {
         parts: [
           { 
-            // UNIVERSAL PROMPT: Handles Credit Cards (1 amount col) AND Bank Statements (Deposit/Withdrawal cols)
+            // UNIVERSAL PROMPT: Now with Auto-Currency Conversion
             text: `Analyze the provided bank or credit card statement.
             Extract transactions into a JSON object with: date, description, amount, type, category.
             
             CRITICAL RULES FOR ACCURACY:
-            1. **Detect Layout:** - If the table has separate columns for "Deposit" (or Credit) and "Withdrawal" (or Debit), use them.
-               - Values in "Deposit" column -> TYPE: 'income'.
-               - Values in "Withdrawal" column -> TYPE: 'expense'.
+            1. **Detect Layout:** - If the table has separate columns for "Deposit" and "Withdrawal", use them.
+               - "Deposit" -> TYPE: 'income'.
+               - "Withdrawal" -> TYPE: 'expense'.
             
-            2. **Ignore Balance:** NEVER extract the "Balance" column as a transaction. Only extract the movement of money.
+            2. **FOREIGN CURRENCY (FCY) CONVERSION:** - Check the table header or currency column (e.g. JPY, USD, AUD).
+               - If the currency is NOT HKD (Hong Kong Dollars):
+                 a. **CONVERT** the amount to HKD using approximate current exchange rates (e.g., 1 JPY ≈ 0.052 HKD, 1 USD ≈ 7.78 HKD).
+                 b. Use the **converted HKD value** for the 'amount' field.
+                 c. Append the original amount and currency to the description. 
+                    - Example: "DEPOSIT (Converted from 196,298 JPY)"
             
-            3. **Ignore Summaries:** Do not extract lines like "Total", "B/F BALANCE", "C/F BALANCE", or "Transaction Summary".
+            3. **Ignore Balance:** NEVER extract the "Balance" column.
             
-            4. **Specific Keywords (Bank Statement Override):**
-               - "Credit Interest" -> TYPE: 'income', CATEGORY: 'Income'.
-               - "DEPOSIT" -> TYPE: 'income', CATEGORY: 'Income'.
-               - "AUTOPAY" -> TYPE: 'expense' (unless in deposit column).
+            4. **Ignore Summaries:** Do not extract "Total", "B/F BALANCE", or "C/F BALANCE".
             
-            5. **Row Merging:** If a description spans multiple lines (e.g. "APPLE PAY-OTHERS" below the merchant name), merge them into one description.
+            5. **Keywords:**
+               - "Credit Interest" -> TYPE: 'income'.
+               - "DEPOSIT" -> TYPE: 'income'.
             
             Standard Rules:
-            - Date format: YYYY-MM-DD. (If date is missing on a row, use the date from the previous row or section header).
-            - Amount: Absolute number (positive).
+            - Date format: YYYY-MM-DD.
+            - Amount: Absolute number (positive) in HKD.
             - Categories: Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
 
             Return ONLY raw JSON.` 
