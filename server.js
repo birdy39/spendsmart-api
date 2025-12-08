@@ -29,7 +29,7 @@ app.post('/analyze-statement', async (req, res) => {
       {
         parts: [
           { 
-            // UNIVERSAL PROMPT: Now with Auto-Currency Conversion
+            // UNIVERSAL PROMPT: Preserved Logic
             text: `Analyze the provided bank or credit card statement.
             Extract transactions into a JSON object with: date, description, amount, type, category.
             
@@ -71,7 +71,8 @@ app.post('/analyze-statement', async (req, res) => {
     ];
 
     // 2. Direct Fetch Call
-    const modelName = "gemini-2.0-flash"; 
+    // UPDATED: Switched to 'gemini-flash-latest' for better stability and free tier quota
+    const modelName = "gemini-flash-latest"; 
     
     console.log(`Attempting to use model: ${modelName}`);
 
