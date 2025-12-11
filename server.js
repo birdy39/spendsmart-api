@@ -29,25 +29,26 @@ app.post('/analyze-statement', async (req, res) => {
       {
         parts: [
           { 
-            // UNIVERSAL PROMPT: Preserved Logic
+            // UNIVERSAL PROMPT: Now extracts BANK NAME
             text: `Analyze the provided bank or credit card statement.
-            Extract transactions into a JSON object with: date, description, amount, type, category.
+            Extract transactions into a JSON object with: date, description, amount, type, category, bank.
             
             CRITICAL RULES FOR ACCURACY:
-            1. **Detect Layout:** - If the table has separate columns for "Deposit" and "Withdrawal", use them.
+            1. **IDENTIFY BANK:** Look at the document header, logo, or text at the top (e.g., "Hang Seng Bank", "HSBC", "Standard Chartered", "Chase"). 
+               - Extract this as the "bank" field for EVERY transaction in this document. 
+               - If unknown, use "Unknown Bank".
+            
+            2. **Detect Layout:** - If the table has separate columns for "Deposit" and "Withdrawal", use them.
                - "Deposit" -> TYPE: 'income'.
                - "Withdrawal" -> TYPE: 'expense'.
             
-            2. **FOREIGN CURRENCY (FCY) CONVERSION:** - Check the table header or currency column (e.g. JPY, USD, AUD).
+            3. **FOREIGN CURRENCY (FCY) CONVERSION:** - Check the table header or currency column (e.g. JPY, USD, AUD).
                - If the currency is NOT HKD (Hong Kong Dollars):
-                 a. **CONVERT** the amount to HKD using approximate current exchange rates (e.g., 1 JPY ≈ 0.052 HKD, 1 USD ≈ 7.78 HKD).
+                 a. **CONVERT** the amount to HKD using approximate current exchange rates.
                  b. Use the **converted HKD value** for the 'amount' field.
-                 c. Append the original amount and currency to the description. 
-                    - Example: "DEPOSIT (Converted from 196,298 JPY)"
+                 c. Append original amount/currency to description.
             
-            3. **Ignore Balance:** NEVER extract the "Balance" column.
-            
-            4. **Ignore Summaries:** Do not extract "Total", "B/F BALANCE", or "C/F BALANCE".
+            4. **Ignore Balance:** NEVER extract the "Balance" column.
             
             5. **Keywords:**
                - "Credit Interest" -> TYPE: 'income'.
@@ -71,7 +72,6 @@ app.post('/analyze-statement', async (req, res) => {
     ];
 
     // 2. Direct Fetch Call
-    // UPDATED: Switched to 'gemini-flash-latest' for better stability and free tier quota
     const modelName = "gemini-flash-latest"; 
     
     console.log(`Attempting to use model: ${modelName}`);
