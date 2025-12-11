@@ -14,6 +14,57 @@ if (!rawKey) {
 const apiKey = rawKey ? rawKey.trim() : "";
 // -----------------------------
 
+// --- HELPER: Auto-Retry Function ---
+// If Google is overloaded (503) or rate limited (429), we wait and try again.
+async function fetchWithRetry(url, options, retries = 3, backoff = 2000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      
+      // If successful, return immediately
+      if (response.ok) return response;
+
+      // If specific "busy" errors, throw to trigger retry
+      if (response.status === 503 || response.status === 429) {
+        console.log(`Google API busy (Status ${response.status}). Retrying in ${backoff/1000}s... (Attempt ${i+1}/${retries})`);
+        throw new Error("BUSY");
+      }
+
+      // If it's a real error (like 400 Bad Request), return it immediately (don't retry)
+      return response;
+
+    } catch (err) {
+      // If we ran out of retries, or if it's a network crash, stop.
+      if (i === retries - 1) throw err;
+      
+      // Wait for the backoff period
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      
+      // Increase wait time for next try (2s -> 4s -> 6s)
+      backoff = backoff * 1.5;
+    }
+  }
+}
+
+// --- DIAGNOSTIC: List Available Models ---
+async function listModels() {
+  if (!apiKey) return;
+  try {
+    console.log("System: Checking available models...");
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const data = await response.json();
+    if (data.models) {
+      console.log("--- AVAILABLE MODELS ---");
+      console.log(data.models.map(m => m.name.replace('models/', '')).join("\n"));
+      console.log("------------------------");
+    }
+  } catch (e) {
+    console.error("System: Failed to check models:", e.message);
+  }
+}
+listModels();
+
+// --- MAIN ENDPOINT ---
 app.post('/analyze-statement', async (req, res) => {
   try {
     const { imageParts } = req.body;
@@ -24,38 +75,23 @@ app.post('/analyze-statement', async (req, res) => {
 
     console.log("Processing request via Direct HTTP...");
 
-    // 1. Prepare Data
     const contents = [
       {
         parts: [
           { 
-            // UNIVERSAL PROMPT: Now extracts BANK NAME
             text: `Analyze the provided bank or credit card statement.
             Extract transactions into a JSON object with: date, description, amount, type, category, bank.
             
             CRITICAL RULES FOR ACCURACY:
-            1. **IDENTIFY BANK:** Look at the document header, logo, or text at the top (e.g., "Hang Seng Bank", "HSBC", "Standard Chartered", "Chase"). 
-               - Extract this as the "bank" field for EVERY transaction in this document. 
-               - If unknown, use "Unknown Bank".
-            
-            2. **Detect Layout:** - If the table has separate columns for "Deposit" and "Withdrawal", use them.
-               - "Deposit" -> TYPE: 'income'.
-               - "Withdrawal" -> TYPE: 'expense'.
-            
-            3. **FOREIGN CURRENCY (FCY) CONVERSION:** - Check the table header or currency column (e.g. JPY, USD, AUD).
-               - If the currency is NOT HKD (Hong Kong Dollars):
-                 a. **CONVERT** the amount to HKD using approximate current exchange rates.
-                 b. Use the **converted HKD value** for the 'amount' field.
-                 c. Append original amount/currency to description.
-            
-            4. **Ignore Balance:** NEVER extract the "Balance" column.
-            
-            5. **Keywords:**
-               - "Credit Interest" -> TYPE: 'income'.
-               - "DEPOSIT" -> TYPE: 'income'.
+            1. **IDENTIFY BANK:** Look at header/logo (e.g. "Hang Seng", "HSBC"). Add to 'bank' field.
+            2. **Detect Layout:** - Deposit col -> 'income'. Withdrawal col -> 'expense'.
+            3. **FOREIGN CURRENCY:** - If FCY (JPY/USD), CONVERT to HKD. 
+               - Append original amount to description.
+            4. **Ignore Balance:** NEVER extract 'Balance' column.
+            5. **Keywords:** "Credit Interest"/"DEPOSIT" -> 'income'.
             
             Standard Rules:
-            - Date format: YYYY-MM-DD.
+            - Date: YYYY-MM-DD.
             - Amount: Absolute number (positive) in HKD.
             - Categories: Food, Transport, Shopping, Utilities, Entertainment, Health, Income, Other.
 
@@ -71,18 +107,16 @@ app.post('/analyze-statement', async (req, res) => {
       }
     ];
 
-    // 2. Direct Fetch Call
     const modelName = "gemini-flash-latest"; 
     
     console.log(`Attempting to use model: ${modelName}`);
 
-    const response = await fetch(
+    // USE RETRY FUNCTION HERE
+    const response = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents })
       }
     );
@@ -95,10 +129,7 @@ app.post('/analyze-statement', async (req, res) => {
     }
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    
-    if (!text) {
-        throw new Error("AI returned no text.");
-    }
+    if (!text) throw new Error("AI returned no text.");
 
     console.log("Success! Data generated.");
     res.json({ result: text });
