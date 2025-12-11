@@ -15,32 +15,19 @@ const apiKey = rawKey ? rawKey.trim() : "";
 // -----------------------------
 
 // --- HELPER: Auto-Retry Function ---
-// If Google is overloaded (503) or rate limited (429), we wait and try again.
 async function fetchWithRetry(url, options, retries = 3, backoff = 2000) {
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(url, options);
-      
-      // If successful, return immediately
       if (response.ok) return response;
-
-      // If specific "busy" errors, throw to trigger retry
       if (response.status === 503 || response.status === 429) {
-        console.log(`Google API busy (Status ${response.status}). Retrying in ${backoff/1000}s... (Attempt ${i+1}/${retries})`);
+        console.log(`Google API busy. Retrying... (Attempt ${i+1})`);
         throw new Error("BUSY");
       }
-
-      // If it's a real error (like 400 Bad Request), return it immediately (don't retry)
       return response;
-
     } catch (err) {
-      // If we ran out of retries, or if it's a network crash, stop.
       if (i === retries - 1) throw err;
-      
-      // Wait for the backoff period
       await new Promise(resolve => setTimeout(resolve, backoff));
-      
-      // Increase wait time for next try (2s -> 4s -> 6s)
       backoff = backoff * 1.5;
     }
   }
@@ -50,7 +37,6 @@ async function fetchWithRetry(url, options, retries = 3, backoff = 2000) {
 async function listModels() {
   if (!apiKey) return;
   try {
-    console.log("System: Checking available models...");
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
     const data = await response.json();
     if (data.models) {
@@ -59,7 +45,7 @@ async function listModels() {
       console.log("------------------------");
     }
   } catch (e) {
-    console.error("System: Failed to check models:", e.message);
+    console.error("Check models failed:", e.message);
   }
 }
 listModels();
@@ -79,16 +65,23 @@ app.post('/analyze-statement', async (req, res) => {
       {
         parts: [
           { 
+            // UPDATED PROMPT: Added specific Chinese Keywords for HK Banks
             text: `Analyze the provided bank or credit card statement.
             Extract transactions into a JSON object with: date, description, amount, type, category, bank.
             
             CRITICAL RULES FOR ACCURACY:
-            1. **IDENTIFY BANK:** Look at header/logo (e.g. "Hang Seng", "HSBC"). Add to 'bank' field.
-            2. **Detect Layout:** - Deposit col -> 'income'. Withdrawal col -> 'expense'.
+            1. **IDENTIFY BANK:** Look at header/logo (e.g. "Hang Seng", "HSBC", "Bank of China"). Add to 'bank' field.
+            
+            2. **DETECT COLUMNS (Bilingual):** - **INCOME/DEPOSIT:** Look for headers like "Deposit", "Credit", "存入", "存款". Values in these columns are ALWAYS 'income'.
+               - **EXPENSE/WITHDRAWAL:** Look for headers like "Withdrawal", "Debit", "提取", "提款". Values in these columns are ALWAYS 'expense'.
+            
             3. **FOREIGN CURRENCY:** - If FCY (JPY/USD), CONVERT to HKD. 
                - Append original amount to description.
-            4. **Ignore Balance:** NEVER extract 'Balance' column.
-            5. **Keywords:** "Credit Interest"/"DEPOSIT" -> 'income'.
+            
+            4. **Ignore Balance:** NEVER extract 'Balance' or '結餘' column.
+            
+            5. **Keywords & Context:** - "Credit Interest", "利息", "DEPOSIT", "存入" -> 'income'.
+               - "ATM TRF" -> Check which column it is in. If in Deposit/存入, it is 'income'.
             
             Standard Rules:
             - Date: YYYY-MM-DD.
@@ -111,7 +104,6 @@ app.post('/analyze-statement', async (req, res) => {
     
     console.log(`Attempting to use model: ${modelName}`);
 
-    // USE RETRY FUNCTION HERE
     const response = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
       {
